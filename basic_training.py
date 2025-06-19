@@ -8,6 +8,7 @@ import torchvision
 import torchvision.transforms as transforms
 
 import os
+import copy
 
 from models import *
 
@@ -60,15 +61,6 @@ def attack(x, y, model, adversary):
     adv = adversary.perturb(x, y)
     return adv
 
-net = ResNet18()
-net = net.to(device)
-net = torch.nn.DataParallel(net)
-cudnn.benchmark = True
-
-adversary = LinfPGDAttack(net)
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.SGD(net.parameters(), lr=learning_rate, momentum=0.9, weight_decay=0.0002)
-
 def train(epoch):
     print('\n[ Train epoch: %d ]' % epoch)
     net.train()
@@ -89,14 +81,38 @@ def train(epoch):
 
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
-        
+
         if batch_idx % 10 == 0:
             print('\nCurrent batch:', str(batch_idx))
-            print('Current benign train accuracy:', str(predicted.eq(targets).sum().item() / targets.size(0)))
-            print('Current benign train loss:', loss.item())
+            print('train acc:', str(predicted.eq(targets).sum().item() / targets.size(0)))
+            #print('Current benign train loss:', loss.item())
+            test_current_batch(inputs, targets)
 
-    print('\nTotal benign train accuarcy:', 100. * correct / total)
+    print('\nTotal benign train accuracy:', 100. * correct / total)
     print('Total benign train loss:', train_loss)
+
+def test_current_batch(inputs, targets):
+    net.eval()
+    with torch.no_grad():
+        outputs = net(inputs)
+        loss = criterion(outputs, targets)
+        _, predicted = outputs.max(1)
+        correct = predicted.eq(targets).sum().item()
+        total = targets.size(0)
+        
+        print('test acc:', correct / total)
+        #print('Current benign test loss:', loss.item())
+
+        # 進行對抗測試
+        adversary = LinfPGDAttack(net)
+        adv = adversary.perturb(inputs, targets)
+        adv_outputs = net(adv)
+        adv_loss = criterion(adv_outputs, targets)
+        _, adv_predicted = adv_outputs.max(1)
+        adv_correct = adv_predicted.eq(targets).sum().item()
+
+        print('adversarial test acc:', adv_correct / total)
+        #print('Current adversarial test loss:', adv_loss.item())
 
 def test(epoch):
     print('\n[ Test epoch: %d ]' % epoch)
@@ -118,11 +134,6 @@ def test(epoch):
             _, predicted = outputs.max(1)
             benign_correct += predicted.eq(targets).sum().item()
 
-            if batch_idx % 10 == 0:
-                print('\nCurrent batch:', str(batch_idx))
-                print('Current benign test accuracy:', str(predicted.eq(targets).sum().item() / targets.size(0)))
-                print('Current benign test loss:', loss.item())
-
             adv = adversary.perturb(inputs, targets)
             adv_outputs = net(adv)
             loss = criterion(adv_outputs, targets)
@@ -131,12 +142,8 @@ def test(epoch):
             _, predicted = adv_outputs.max(1)
             adv_correct += predicted.eq(targets).sum().item()
 
-            if batch_idx % 10 == 0:
-                print('Current adversarial test accuracy:', str(predicted.eq(targets).sum().item() / targets.size(0)))
-                print('Current adversarial test loss:', loss.item())
-
-    print('\nTotal benign test accuarcy:', 100. * benign_correct / total)
-    print('Total adversarial test Accuarcy:', 100. * adv_correct / total)
+    print('\nTotal benign test accuracy:', 100. * benign_correct / total)
+    print('Total adversarial test Accuracy:', 100. * adv_correct / total)
     print('Total benign test loss:', benign_loss)
     print('Total adversarial test loss:', adv_loss)
 
@@ -157,7 +164,17 @@ def adjust_learning_rate(optimizer, epoch):
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
-for epoch in range(0, 200):
-    adjust_learning_rate(optimizer, epoch)
-    train(epoch)
-    test(epoch)
+if __name__ == '__main__':
+    net = ResNet18()
+    net = net.to(device)
+    net = torch.nn.DataParallel(net)
+    cudnn.benchmark = True
+
+    adversary = LinfPGDAttack(net)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(net.parameters(), lr=learning_rate, momentum=0.9, weight_decay=0.0002)
+
+    for epoch in range(0, 200):
+        adjust_learning_rate(optimizer, epoch)
+        train(epoch)
+        test(epoch)  # 每個訓練周期後進行整體測試
