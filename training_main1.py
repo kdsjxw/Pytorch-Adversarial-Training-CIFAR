@@ -86,7 +86,7 @@ def train(epoch):
             print('\nCurrent batch:', str(batch_idx))
             print('train acc:', str(predicted.eq(targets).sum().item() / targets.size(0)))
             #print('Current benign train loss:', loss.item())
-            test_current_batch(inputs, targets)
+            #test_current_batch(inputs, targets)
 
     print('\nTotal benign train accuracy:', 100. * correct / total)
     print('Total benign train loss:', train_loss)
